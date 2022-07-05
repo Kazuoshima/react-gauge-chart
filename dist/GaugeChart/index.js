@@ -347,5 +347,6 @@ var updateDimensions = function updateDimensions(props, container, margin, width
   width.current = divWidth - margin.current.left - margin.current.right;
   margin.current.top = divHeight * marginInPercent;
   margin.current.bottom = divHeight * marginInPercent;
-  height.current = width.current / 2 - margin.current.top - margin.current.bottom; //height.current = divHeight - margin.current.top - margin.current.bottom;
+  //height.current = width.current / 2 - margin.current.top - margin.current.bottom; //height.current = divHeight - margin.current.top - margin.current.bottom;
+  height.current = divHeight - margin.current.top - margin.current.bottom;
 };
