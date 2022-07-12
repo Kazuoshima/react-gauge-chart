@@ -136,6 +136,8 @@ GaugeChart.defaultProps = {
   cornerRadius: 6,
   nrOfLevels: 3,
   percent: 0.4,
+  min: 0,
+  max: 100,
   arcPadding: 0.05,
   //The padding between arcs, in rad
   arcWidth: 0.2,
@@ -143,12 +145,13 @@ GaugeChart.defaultProps = {
   colors: ["#00FF00", "#FF0000"],
   //Default defined colors
   textColor: "#fff",
-  needleColor: "#464A4F",
-  needleBaseColor: "#464A4F",
+  needleColor: null,
+  needleBaseColor: null,
   hideText: false,
   animate: true,
   animDelay: 500,
   formatTextValue: null,
+  formatBorderTextValue: null,
   fontSize: null,
   animateDuration: 3000
 };
@@ -160,6 +163,8 @@ GaugeChart.propTypes = {
   cornerRadius: _propTypes.default.number,
   nrOfLevels: _propTypes.default.number,
   percent: _propTypes.default.number,
+  min: _propTypes.default.number,
+  max: _propTypes.default.number,
   arcPadding: _propTypes.default.number,
   arcWidth: _propTypes.default.number,
   arcsLength: _propTypes.default.array,
@@ -170,6 +175,7 @@ GaugeChart.propTypes = {
   hideText: _propTypes.default.bool,
   animate: _propTypes.default.bool,
   formatTextValue: _propTypes.default.func,
+  formatBorderTextValue: _propTypes.default.func,
   fontSize: _propTypes.default.string,
   animateDuration: _propTypes.default.number,
   animDelay: _propTypes.default.number
@@ -233,11 +239,9 @@ var getColors = function getColors(props, nbArcsToDisplay) {
   var colorScale = (0, _d.scaleLinear)().domain([1, nbArcsToDisplay.current]).range([colors[0], colors[colors.length - 1]]) //Use the first and the last color as range
   .interpolate(_d.interpolateHsl);
   var colorArray = [];
-
   for (var i = 1; i <= nbArcsToDisplay.current; i++) {
     colorArray.push(colorScale(i));
   }
-
   return colorArray;
 }; //If 'resize' is true then the animation does not play
 
@@ -247,17 +251,27 @@ var drawNeedle = function drawNeedle(resize, prevProps, props, width, needle, co
       needleColor = props.needleColor,
       needleBaseColor = props.needleBaseColor,
       hideText = props.hideText,
+      arcWidth = props.arcWidth,
       animate = props.animate;
-  var needleRadius = 15 * (width.current / 500),
+  var needleRadius = 15 * (width.current / 500), // Make the needle radius responsive
+    centerPoint = [0, -needleRadius / 2];
+  //var needleRadius = 15 * (width.current / 500),
       // Make the needle radius responsive
-  centerPoint = [0, -needleRadius / 2]; //Draw the triangle
+  //centerPoint = [0, -needleRadius / 2]; //Draw the triangle
   //var pathStr = `M ${leftPoint[0]} ${leftPoint[1]} L ${topPoint[0]} ${topPoint[1]} L ${rightPoint[0]} ${rightPoint[1]}`;
-
+  //Define needle color
+  var nbArcsToDisplay = props.arcsLength
+  ? props.arcsLength.length
+  : props.nrOfLevels;
+  const colors = nbArcsToDisplay === props.colors.length ? props.colors : getColors(props, {current: nbArcsToDisplay});
+  const indexOfColor = Math.ceil((percent*100)/(100 / nbArcsToDisplay)) - 1;
+  const needleColorFinal = needleColor ? needleColor : colors[indexOfColor >= 0 ? indexOfColor : 0];
+  const needleBaseFinal = needleBaseColor ? needleBaseColor : colors[indexOfColor >= 0 ? indexOfColor : 0];
   var prevPercent = prevProps ? prevProps.percent : 0;
   var pathStr = calculateRotation(prevPercent || percent, outerRadius, width);
-  needle.current.append("path").attr("d", pathStr).attr("fill", needleColor); //Add a circle at the bottom of needle
+  needle.current.append("path").attr("d", pathStr).attr("fill", needleColorFinal); //Add a circle at the bottom of needle
 
-  needle.current.append("circle").attr("cx", centerPoint[0]).attr("cy", centerPoint[1]).attr("r", needleRadius).attr("fill", needleBaseColor);
+  needle.current.append("circle").attr("cx", centerPoint[0]).attr("cy", centerPoint[1]).attr("r", needleRadius).attr("fill", needleBaseFinal);
 
   if (!hideText) {
     addText(percent, props, outerRadius, width, g);
@@ -296,16 +310,89 @@ var percentToRad = function percentToRad(percent) {
 }; //Adds text undeneath the graft to display which percentage is the current one
 
 
-var addText = function addText(percentage, props, outerRadius, width, g) {
-  var formatTextValue = props.formatTextValue,
-      fontSize = props.fontSize;
+//Adds text undeneath the graft to display which percentage is the current one
+const addText = (percentage, props, outerRadius, width, g) => {
+  const { formatTextValue, formatBorderTextValue, min, max, fontSize } = props;
   var textPadding = 20;
-  var text = formatTextValue ? formatTextValue(floatingNumber(percentage)) : floatingNumber(percentage) + "%";
-  g.current.append("g").attr("class", "text-group").attr("transform", "translate(".concat(outerRadius.current, ", ").concat(outerRadius.current / 2 + textPadding, ")")).append("text").text(text) // this computation avoid text overflow. When formatted value is over 10 characters, we should reduce font size
-  .style("font-size", function () {
-    return fontSize ? fontSize : "".concat(width.current / 11 / (text.length > 10 ? text.length / 10 : 1), "px");
-  }).style("fill", props.textColor).style("text-anchor", "middle");
+  const text = formatTextValue
+    ? formatTextValue(floatingNumber(percentage))
+    : floatingNumber(percentage) + "%";
+
+  g.current
+    .append("g")
+    .attr("class", "text-group")
+    .attr(
+      "transform",
+      `translate(${outerRadius.current}, ${
+        outerRadius.current / 2 + textPadding
+      })`
+    )
+    .append("text")
+    .text(text)
+    // this computation avoid text overflow. When formatted value is over 10 characters, we should reduce font size
+    .style("font-size", () =>
+      fontSize
+        ? fontSize
+        : `${width.current / 11 / (text.length > 10 ? text.length / 10 : 1)}px`
+    )
+    .style("fill", props.textColor)
+    .style("text-anchor", "middle");
+
+    //Left/min value text
+    drawTextMin(props, outerRadius, width, g);
+
+    //right/max value text
+    drawTextMax(props, outerRadius, width, g);
 };
+
+const drawTextMin = (props, outerRadius, width, g) => {
+    const { formatBorderTextValue, min, fontSize } = props;
+    var textPadding = 20;
+    const textMin = formatBorderTextValue
+      ? formatBorderTextValue(min)
+      : min + "°C";
+    const textSizeMin = fontSize ? fontSize : `${width.current / 11 / (text.length > 10 ? text.length / 10 : 1)}px`;
+    g.current
+      .append("g")
+      .attr("class", "text-group")
+      .attr(
+        "transform",
+        `translate(${textPadding}, ${
+          outerRadius.current + parseFloat(textSizeMin)
+        })`
+      )
+      .append("text")
+      .text(textMin)
+      // this computation avoid text overflow. When formatted value is over 10 characters, we should reduce font size
+      .style("font-size",textSizeMin)
+      .style("fill", props.textColor)
+      .style("text-anchor", "middle");
+}
+
+const drawTextMax = (props, outerRadius, width, g) => {
+    const { formatBorderTextValue, max, fontSize } = props;
+    var textPadding = 20;
+    //right/max value text
+    const textMax = formatBorderTextValue
+      ? formatBorderTextValue(max)
+      : max + "°C";
+    const textSizeMax = fontSize ? fontSize : `${width.current / 11 / (text.length > 10 ? text.length / 10 : 1)}px`;
+    g.current
+      .append("g")
+      .attr("class", "text-group")
+      .attr(
+        "transform",
+        `translate(${outerRadius.current * 2 - textPadding}, ${
+          outerRadius.current + parseFloat(textSizeMax)
+        })`
+      )
+      .append("text")
+      .text(textMax)
+      // this computation avoid text overflow. When formatted value is over 10 characters, we should reduce font size
+      .style("font-size", textSizeMax)
+      .style("fill", props.textColor)
+      .style("text-anchor", "middle");
+}
 
 var floatingNumber = function floatingNumber(value) {
   var maxDigits = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 2;
@@ -326,12 +413,13 @@ var calculateRadius = function calculateRadius(width, height, outerRadius, margi
     outerRadius.current = height.current - margin.current.top - margin.current.bottom;
   }
 
-  centerGraph(width, g, outerRadius, margin);
+  centerGraph(width, height, g, outerRadius, margin);
 }; //Calculates new margins to make the graph centered
 
 
-var centerGraph = function centerGraph(width, g, outerRadius, margin) {
+var centerGraph = function centerGraph(width, height, g, outerRadius, margin) {
   margin.current.left = width.current / 2 - outerRadius.current + margin.current.right;
+  margin.current.top = (height.current - outerRadius.current) / 2;
   g.current.attr("transform", "translate(" + margin.current.left + ", " + margin.current.top + ")");
 };
 
